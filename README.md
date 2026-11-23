@@ -64,6 +64,23 @@ The app lives in your menu bar as a quick panel (noise control, EQ presets, batt
 - Xcode 14.0+
 - Bluetooth-enabled Mac
 
+## Download
+
+Prebuilt builds are attached to each [GitHub Release](../../releases) as a `.dmg` and a `.zip` (universal, Apple Silicon and Intel). Builds for pull requests are available as artifacts on the workflow run.
+
+The app is ad-hoc signed and not notarized, so macOS blocks the first launch. Right-click the app and choose **Open**, or allow it under **System Settings → Privacy & Security**. You can also run `xattr -dr com.apple.quarantine "/Applications/Nothing X MacOS.app"`.
+
+### Publishing a release
+
+Push a version tag and the Build workflow creates the release with the app attached:
+
+```sh
+git tag v3.1.0
+git push origin v3.1.0
+```
+
+The tag sets the app's version. Tags with a suffix, such as `v3.1.0-beta.1`, are published as pre-releases.
+
 ## Building
 
 1. Clone the repository
