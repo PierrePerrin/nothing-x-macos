@@ -18,6 +18,9 @@ protocol NothingRepository {
     
     func contains(mac: String) -> Bool
     
+    /// Looks up a saved device by MAC across all saved devices (not just the recent ones returned by getSaved()).
+    func find(mac: String) -> NothingDeviceEntity?
+    
     func delete(mac: String)
 
     
