@@ -2,35 +2,69 @@
 //  Nothing_X_MacOSTests.swift
 //  Nothing X MacOSTests
 //
-//  Created by Arunavo Ray on 07/01/23.
+//  Unit tests for model detection (SKUUtil) and the packet checksum (CRC16).
 //
 
 import XCTest
 @testable import Nothing_X_MacOS
 
-final class Nothing_X_MacOSTests: XCTestCase {
+final class ModelDetectionTests: XCTestCase {
 
-    override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-    }
-
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
-
-    func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // Any test you write for XCTest can be annotated as throws and async.
-        // Mark your test throws to produce an unexpected failure when your test encounters an uncaught error.
-        // Mark your test async to allow awaiting for asynchronous code to complete. Check the results with assertions afterwards.
-    }
-
-    func testPerformanceExample() throws {
-        // This is an example of a performance test case.
-        self.measure {
-            // Put the code you want to measure the time of here.
+    func testCodenameFromDeviceName() {
+        let cases: [(String, Codenames)] = [
+            ("Nothing ear (1)", .ONE),
+            // "buds 2 plus" and "buds 2a" must be checked before "buds 2"
+            ("CMF Buds 2 Plus", .GLIGAR),
+            ("CMF Buds 2a", .HOOTHOOT),
+            ("CMF Buds 2", .GIRAFARIG),
+            // "buds pro 2" must be checked before "buds pro"
+            ("CMF Buds Pro 2", .ESPEON),
+            ("CMF Buds Pro", .CORSOLA),
+            ("Nothing Headphone (1)", .ELEKID),
+            ("Nothing Ear", .TWOS),
+            ("AirPods", .UNKNOWN),
+        ]
+        for (name, expected) in cases {
+            XCTAssertEqual(codenameFromDeviceName(name: name), expected, "device name: \(name)")
         }
     }
 
+    func testSkuFromSerialEmptyIsUnknown() {
+        XCTAssertEqual(skuFromSerial(serial: ""), .UNKNOWN)
+    }
+
+    func testSkuFromSerialPlaceholderIsUnknown() {
+        // The old hardcoded mapping of this fake serial to Ear (1) was removed
+        XCTAssertEqual(skuFromSerial(serial: "12345678901234567"), .UNKNOWN)
+    }
+
+    func testSkuFromSerialMAUsesYear() {
+        // Characters 7-8 are the year: 22 or 23 means Ear (stick), otherwise Ear (open)
+        XCTAssertEqual(skuFromSerial(serial: "MA00002212345"), .EAR_STICK_1)
+        XCTAssertEqual(skuFromSerial(serial: "MA00002412345"), .FLAFFY_WHITE)
+    }
+
+    func testSkuFromSerialSHUsesSkuDigits() {
+        // Characters 5-6 are the SKU raw value
+        XCTAssertEqual(skuFromSerial(serial: "SH0014ABCDEF"), .EAR_STICK_1)
+    }
+
+    func testCodenameFromSKU() {
+        XCTAssertEqual(codenameFromSKU(sku: .EAR_1_WHITE), .ONE)
+        XCTAssertEqual(codenameFromSKU(sku: .EAR_STICK_1), .STICKS)
+        XCTAssertEqual(codenameFromSKU(sku: .GLIGAR_WHITE), .GLIGAR)
+        XCTAssertEqual(codenameFromSKU(sku: .UNKNOWN), .UNKNOWN)
+    }
+}
+
+final class CRC16Tests: XCTestCase {
+
+    func testModbusCheckValue() {
+        // Standard CRC-16/MODBUS check value for ASCII "123456789"
+        XCTAssertEqual(CRC16.crc16(buffer: Array("123456789".utf8)), 0x4B37)
+    }
+
+    func testEmptyBufferReturnsInitialValue() {
+        XCTAssertEqual(CRC16.crc16(buffer: []), 0xFFFF)
+    }
 }

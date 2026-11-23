@@ -37,10 +37,8 @@ class NothingServiceImpl : NothingService {
     private var currentRequest: Request? = nil
     
     private let classOfNothing:UInt32 = 2360324
-    // A queue to hold requests
+    // A queue to hold requests; only touched on the main thread, so no lock
     private var requestQueue: [Request] = []
-    // A semaphore to control access to the queue
-    private let queueSemaphore = DispatchSemaphore(value: 1)
     private let maxRetries = 3
     // A flag to indicate if a request is currently being processed
     private var isProcessing = false
@@ -58,8 +56,7 @@ class NothingServiceImpl : NothingService {
                     self.nothingDevice = NothingDeviceFDTO(bluetoothDetails: device)
 
                     // Restore codename and name from saved configuration if available
-                    let savedDevices = NothingRepositoryImpl.shared.getSaved()
-                    if let saved = savedDevices.first(where: { $0.bluetoothDetails.mac == device.mac }) {
+                    if let saved = NothingRepositoryImpl.shared.find(mac: device.mac) {
                         if saved.codename != .UNKNOWN {
                             self.nothingDevice?.codename = saved.codename
                         }
@@ -125,8 +122,7 @@ class NothingServiceImpl : NothingService {
             guard let device = notification.object as? BluetoothDeviceEntity else { return }
             guard !self.userInitiatedDisconnect, !self.isNothingConnected() else { return }
 
-            let savedDevices = NothingRepositoryImpl.shared.getSaved()
-            let isSaved = savedDevices.contains(where: { $0.bluetoothDetails.mac == device.mac })
+            let isSaved = NothingRepositoryImpl.shared.find(mac: device.mac) != nil
             let isNothing = codenameFromDeviceName(name: device.name) != .UNKNOWN
             guard isSaved || isNothing else { return }
 
@@ -234,12 +230,10 @@ class NothingServiceImpl : NothingService {
     }
 
     private func flushRequestQueue() {
-        queueSemaphore.wait()
         let dropped = requestQueue.count
         requestQueue.removeAll()
         currentRequest = nil
         isProcessing = false
-        queueSemaphore.signal()
 
         if dropped > 0 {
             log.info("Dropped \(dropped) pending requests after channel close")
@@ -543,7 +537,7 @@ class NothingServiceImpl : NothingService {
             log.debug("Adding fetch requests to queue")
 
             // Small delay to let the device settle after RFCOMM connection
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
 
                 self.addRequest(command: Commands.GET_FIRMWARE, operationID: Commands.GET_FIRMWARE.firstEightBits, requestTimeout: 1000, responseTimeout: 1000) {
                     result in
@@ -634,7 +628,7 @@ class NothingServiceImpl : NothingService {
                 }
 
                 // Fetch device-specific features after a small delay to allow codename detection
-                DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     self.fetchDeviceSpecificData()
                 }
 
@@ -741,20 +735,17 @@ class NothingServiceImpl : NothingService {
     
     // Function to get the current request being processed
     private func getCurrentRequest() -> Request? {
-        queueSemaphore.wait()
-        defer { queueSemaphore.signal() }
         return requestQueue.first // Return the first request in the queue
     }
     
-    // Function to process requests in the queue
+    // Function to process requests in the queue (main thread only)
     private func processNextRequest() {
         log.debug("Queue: processing next request")
-        queueSemaphore.wait()
 
         guard !requestQueue.isEmpty else {
             log.debug("Queue: empty")
+            currentRequest = nil
             isProcessing = false
-            queueSemaphore.signal()
             return
         }
 
@@ -764,44 +755,36 @@ class NothingServiceImpl : NothingService {
         log.debug("Queue: processing request \(request.operationID)")
         isProcessing = true
         let requestID = request.id
-        queueSemaphore.signal()
 
         // Set a timeout for the request
         let requestTimeout = DispatchTime.now() + request.requestTimeout
-        DispatchQueue.global().asyncAfter(deadline: requestTimeout) {
+        DispatchQueue.main.asyncAfter(deadline: requestTimeout) {
             // Only handle timeout if this request is still the current one
             // (stale timeouts from already-completed requests must be ignored)
-            self.queueSemaphore.wait()
             guard self.isProcessing, self.currentRequest?.id == requestID else {
-                self.queueSemaphore.signal()
                 return
             }
 
             self.log.warning("Request \(request.command) timed out (attempt \(request.retryCount + 1)/\(request.maxRetries + 1))")
             // Increment the retry count
             request.retryCount += 1
+            self.currentRequest = nil
+            self.isProcessing = false
 
             // Check if the retry count exceeds the maximum allowed
             if request.retryCount <= request.maxRetries {
-                // Re-add the request to the queue
-                self.requestQueue.append(request)
-                self.isProcessing = false
-                self.queueSemaphore.signal()
-
-                // Call the completion handler with a timeout error
-                request.completion(.failure(DeviceError.timeoutError("Request timed out.")))
-
-                // Process the next request
-                self.processNextRequest()
+                // Retry before anything queued later, so a quick second
+                // setting change can't be overwritten by the first one's retry
+                // No completion here: it runs once, when the retry succeeds or retries run out
+                self.requestQueue.insert(request, at: 0)
             } else {
                 // Handle the case where the maximum retries have been reached
-                self.isProcessing = false
-                self.queueSemaphore.signal()
-
                 self.log.error("Maximum retries reached for request \(request.command)")
                 request.completion(.failure(DeviceError.timeoutError("Maximum retries reached.")))
+            }
 
-                // Process the next request
+            // A completion may already have started the next request
+            if !self.isProcessing {
                 self.processNextRequest()
             }
         }
@@ -819,13 +802,10 @@ class NothingServiceImpl : NothingService {
         let retries = maxRetries ?? self.maxRetries
         let request = Request(command: command, operationID: operationID, payload: payload, completion: completion, requestTimeout: requestTimeoutInSeconds, responseTimeout: responseTimeoutInSeconds, maxRetries: retries)
 
-        queueSemaphore.wait()
         requestQueue.append(request)
-        let shouldStartProcessing = !isProcessing
-        queueSemaphore.signal()
 
         // Start processing if not already processing
-        if shouldStartProcessing {
+        if !isProcessing {
             processNextRequest()
         }
     }
@@ -983,8 +963,8 @@ class NothingServiceImpl : NothingService {
         for config in configurations {
             log.debug("Config: device=\(config.device) type=\(config.type) value=\(config.value)")
         }
-        let serialValue = serialConfigs.first?.value ?? "12345678901234567"
-        log.info("Serial: \(serialValue)")
+        let serialValue = serialConfigs.first?.value ?? ""
+        log.debug("Serial: \(serialValue)")
         return serialValue
     }
     
@@ -1115,8 +1095,7 @@ class NothingServiceImpl : NothingService {
 
     private func restoreCachedCustomEQ() {
         guard let mac = nothingDevice?.bluetoothDetails.mac else { return }
-        let saved = NothingRepositoryImpl.shared.getSaved()
-        guard let cached = saved.first(where: { $0.bluetoothDetails.mac == mac }) else { return }
+        guard let cached = NothingRepositoryImpl.shared.find(mac: mac) else { return }
 
         if cached.isAdvancedEQEnabled {
             nothingDevice?.isAdvancedEQEnabled = true
@@ -1176,19 +1155,28 @@ class NothingServiceImpl : NothingService {
         if modelBase == .ONE {
             // Ear (1) uses a 1-byte payload: 0x01 = ring, 0x00 = stop
             let byteArray: [UInt8] = [doRing ? 0x01 : 0x00]
-            send(command: Commands.SET_RING_BUDS.rawValue, operationID: Commands.SET_RING_BUDS.firstEightBits, payload: byteArray)
+            addRingRequest(payload: byteArray)
         } else {
             // All other devices use a 2-byte payload: [deviceId, ringState]
             // device == nil means ring both (send two commands)
             if let device = device {
                 let byteArray: [UInt8] = [device.rawValue, doRing ? 0x01 : 0x00]
-                send(command: Commands.SET_RING_BUDS.rawValue, operationID: Commands.SET_RING_BUDS.firstEightBits, payload: byteArray)
+                addRingRequest(payload: byteArray)
             } else {
                 // Ring both buds
                 let leftPayload: [UInt8] = [DeviceType.LEFT.rawValue, doRing ? 0x01 : 0x00]
-                send(command: Commands.SET_RING_BUDS.rawValue, operationID: Commands.SET_RING_BUDS.firstEightBits, payload: leftPayload)
+                addRingRequest(payload: leftPayload)
                 let rightPayload: [UInt8] = [DeviceType.RIGHT.rawValue, doRing ? 0x01 : 0x00]
-                send(command: Commands.SET_RING_BUDS.rawValue, operationID: Commands.SET_RING_BUDS.firstEightBits, payload: rightPayload)
+                addRingRequest(payload: rightPayload)
+            }
+        }
+    }
+
+    // Goes through the queue so a ring command can't replace another command's pending answer
+    private func addRingRequest(payload: [UInt8]) {
+        addRequest(command: Commands.SET_RING_BUDS, operationID: Commands.SET_RING_BUDS.firstEightBits, requestTimeout: 1000, responseTimeout: 1000, payload: payload, maxRetries: 0) { result in
+            if case .failure(let error) = result {
+                self.log.warning("Ring command got no answer: \(error.localizedDescription)")
             }
         }
     }
@@ -1259,10 +1247,18 @@ class NothingServiceImpl : NothingService {
         case Commands.READ_SERIAL_NUMBER.rawValue:
 
             let serial = readSerial(hexPayload: rawData)
-            if (!serial.isEmpty) {
+            let nameCodename = codenameFromDeviceName(name: nothingDevice?.name ?? "")
+            if serial.isEmpty {
+                // No serial line in the answer. Ear (1) answers like this, so
+                // keep treating an otherwise unrecognized device as Ear (1),
+                // but never override a model already known from name or config
+                if nothingDevice?.codename == .UNKNOWN, nameCodename == .UNKNOWN {
+                    nothingDevice?.sku = .EAR_1_WHITE
+                    nothingDevice?.codename = .ONE
+                }
+            } else {
                 nothingDevice?.serial = serial
                 let sku = skuFromSerial(serial: serial)
-                let nameCodename = codenameFromDeviceName(name: nothingDevice?.name ?? "")
                 if sku != .UNKNOWN {
                     var codename = codenameFromSKU(sku: sku)
                     // The MA-prefix serial heuristic tells Ear (stick) and
@@ -1363,12 +1359,17 @@ class NothingServiceImpl : NothingService {
         }
         
         log.debug("Current request: \(currentRequest?.operationID ?? 0), executed op: \(executedOperationID)")
-        if let currentRequest = currentRequest {
-            if currentRequest.operationID == executedOperationID {
-                currentRequest.completion(.success(()))
-            }
+        if let request = currentRequest {
+            // Unsolicited packets (battery, ear detection) must not advance the queue; the timeout covers a missing answer
+            guard request.operationID == executedOperationID else { return }
+            currentRequest = nil
+            isProcessing = false
+            request.completion(.success(()))
         }
-        processNextRequest()
+        // A completion may already have started the next request
+        if !isProcessing {
+            processNextRequest()
+        }
         
     }
     

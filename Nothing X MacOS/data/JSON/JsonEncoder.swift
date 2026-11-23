@@ -77,7 +77,7 @@ class JsonEncoder {
         do {
             let jsonData = try encoder.encode(Array(devices.values))
             let fileURL = getFileURL()
-            try jsonData.write(to: fileURL)
+            try jsonData.write(to: fileURL, options: .atomic)
             log.debug("Devices saved")
         } catch {
             log.error("Error saving devices: \(error)")

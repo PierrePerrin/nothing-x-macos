@@ -152,10 +152,6 @@ func skuFromSerial(serial: String) -> SKU {
     let headSerial = String(serial.prefix(2)) // Get the first two characters
     
     
-    if serial == "12345678901234567" {
-        return SKU.EAR_1_WHITE
-    }
-    
     if headSerial == "MA" {
         // Year-based heuristic only — the READ_SERIAL_NUMBER handler
         // cross-checks the result against the advertised device name

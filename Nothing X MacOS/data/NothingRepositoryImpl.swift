@@ -44,4 +44,8 @@ class NothingRepositoryImpl : NothingRepository {
         encoder.getAllDevices().contains { $0.bluetoothDetails.mac == mac }
     }
     
+    func find(mac: String) -> NothingDeviceEntity? {
+        encoder.getAllDevices().toEntities().first { $0.bluetoothDetails.mac == mac }
+    }
+    
 }

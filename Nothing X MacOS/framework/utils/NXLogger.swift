@@ -26,7 +26,8 @@ struct NXLogger {
         )
     }
 
-    func debug(_ message: String) { logger.debug("\(message, privacy: .public)") }
+    // Debug logs carry raw packets, serials and MACs: keep them redacted in unified logs.
+    func debug(_ message: String) { logger.debug("\(message, privacy: .private)") }
     func info(_ message: String) { logger.info("\(message, privacy: .public)") }
     func warning(_ message: String) { logger.warning("\(message, privacy: .public)") }
     func error(_ message: String) { logger.error("\(message, privacy: .public)") }

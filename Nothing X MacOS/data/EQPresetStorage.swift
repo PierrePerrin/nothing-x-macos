@@ -48,7 +48,7 @@ class EQPresetStorage {
 
         do {
             let data = try encoder.encode(presets)
-            try data.write(to: fileURL)
+            try data.write(to: fileURL, options: .atomic)
         } catch {
             log.error("Error saving EQ presets: \(error)")
         }

@@ -25,7 +25,7 @@ struct NXMyDevicesScreen: View {
             }
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 5), spacing: 12) {
-                ForEach(connectVM.savedDevices, id: \.serial) { device in
+                ForEach(connectVM.savedDevices, id: \.bluetoothDetails.mac) { device in
                     deviceTile(device)
                 }
                 pairNewTile

@@ -11,6 +11,11 @@ import SwiftUI
 class NoiseControlViewViewModel : ObservableObject {
     
     private let nothingService: NothingService
+    private var observer: NSObjectProtocol?
+
+    deinit {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+    }
     
     @Published var noiseSelectionOffset: CGFloat = 61
     @Published var anc: NoiseControlOptions = .off
@@ -26,7 +31,10 @@ class NoiseControlViewViewModel : ObservableObject {
 
 
 
-        NotificationCenter.default.addObserver(forName: Notification.Name(DataNotifications.REPOSITORY_DATA_UPDATED.rawValue), object: nil, queue: .main) { notification in
+        // The menu bar popover recreates this view model on every open — keep
+        // the token and capture weakly so old instances are freed
+        observer = NotificationCenter.default.addObserver(forName: Notification.Name(DataNotifications.REPOSITORY_DATA_UPDATED.rawValue), object: nil, queue: .main) { [weak self] notification in
+            guard let self else { return }
 
             if let device = notification.object as? NothingDeviceEntity {
 
