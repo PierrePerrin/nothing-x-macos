@@ -75,7 +75,7 @@ class BluetoothManager: NSObject, IOBluetoothDeviceInquiryDelegate, IOBluetoothR
     private func handleSystemWillSleep() {
         isPreparingForSleep = true
         guard channel != nil, let address = device?.addressString else { return }
-        log.info("System is going to sleep, closing connection to \(address)")
+        log.debug("System is going to sleep, closing connection to \(address)")
         reconnectAfterWake = true
         channel?.close()
         channel = nil
@@ -88,7 +88,7 @@ class BluetoothManager: NSObject, IOBluetoothDeviceInquiryDelegate, IOBluetoothR
     private func handleSystemDidWake() {
         isPreparingForSleep = false
         guard reconnectAfterWake, let address = lastConnectedAddress else { return }
-        log.info("System woke up, waiting for \(address) to come back")
+        log.debug("System woke up, waiting for \(address) to come back")
         attemptWakeReconnect(address: address, attemptsLeft: 10)
     }
 
@@ -251,7 +251,7 @@ class BluetoothManager: NSObject, IOBluetoothDeviceInquiryDelegate, IOBluetoothR
 
         stopDeviceInquiry()
 
-        log.info("Connecting to device \(address)")
+        log.debug("Connecting to device \(address)")
 
         // Check and set on the calling (main) thread so two connects fired together can't both pass
         guard !isConnecting else {
@@ -273,7 +273,7 @@ class BluetoothManager: NSObject, IOBluetoothDeviceInquiryDelegate, IOBluetoothR
 
         DispatchQueue.global(qos: .userInitiated).async {
                 guard let device = IOBluetoothDevice(addressString: address) else {
-                    self.log.error("Invalid device address: \(address)")
+                    self.log.error("Invalid device address")
                     DispatchQueue.main.async {
                         self.isConnecting = false // reset on main, where it is checked
                         NotificationCenter.default.post(name: Notification.Name(BluetoothNotifications.FAILED_TO_CONNECT.rawValue), object: nil)
