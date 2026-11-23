@@ -56,8 +56,7 @@ class NothingServiceImpl : NothingService {
                     self.nothingDevice = NothingDeviceFDTO(bluetoothDetails: device)
 
                     // Restore codename and name from saved configuration if available
-                    let savedDevices = NothingRepositoryImpl.shared.getSaved()
-                    if let saved = savedDevices.first(where: { $0.bluetoothDetails.mac == device.mac }) {
+                    if let saved = NothingRepositoryImpl.shared.find(mac: device.mac) {
                         if saved.codename != .UNKNOWN {
                             self.nothingDevice?.codename = saved.codename
                         }
@@ -123,8 +122,7 @@ class NothingServiceImpl : NothingService {
             guard let device = notification.object as? BluetoothDeviceEntity else { return }
             guard !self.userInitiatedDisconnect, !self.isNothingConnected() else { return }
 
-            let savedDevices = NothingRepositoryImpl.shared.getSaved()
-            let isSaved = savedDevices.contains(where: { $0.bluetoothDetails.mac == device.mac })
+            let isSaved = NothingRepositoryImpl.shared.find(mac: device.mac) != nil
             let isNothing = codenameFromDeviceName(name: device.name) != .UNKNOWN
             guard isSaved || isNothing else { return }
 
@@ -966,7 +964,7 @@ class NothingServiceImpl : NothingService {
             log.debug("Config: device=\(config.device) type=\(config.type) value=\(config.value)")
         }
         let serialValue = serialConfigs.first?.value ?? ""
-        log.info("Serial: \(serialValue)")
+        log.debug("Serial: \(serialValue)")
         return serialValue
     }
     
@@ -1097,8 +1095,7 @@ class NothingServiceImpl : NothingService {
 
     private func restoreCachedCustomEQ() {
         guard let mac = nothingDevice?.bluetoothDetails.mac else { return }
-        let saved = NothingRepositoryImpl.shared.getSaved()
-        guard let cached = saved.first(where: { $0.bluetoothDetails.mac == mac }) else { return }
+        guard let cached = NothingRepositoryImpl.shared.find(mac: mac) else { return }
 
         if cached.isAdvancedEQEnabled {
             nothingDevice?.isAdvancedEQEnabled = true

@@ -1,7 +1,7 @@
 # Repository audit (ponytail-audit)
 
 Audit done on 2026-11-23 with the [ponytail](https://github.com/dietrichgebert/ponytail) `ponytail-audit` skill, on `main` at `f5e83d0`.
-Findings marked **(fixed in this PR)** have a small fix in the same pull request. Everything else is a report only.
+Findings marked **(fixed in this PR)** have a fix in the same pull request. Only #10 (unused old UI) is left as a report, to avoid clashing with parallel UI work.
 
 **What this repo does:** A menu bar app for macOS that talks to Nothing and CMF earbuds and headphones over Bluetooth. It opens a serial channel (RFCOMM, a Bluetooth "cable") to the device, sends small binary commands (noise control, EQ, gestures, ring) and reads back battery and settings. Settings and saved devices are kept in two JSON files in the app's sandbox.
 
@@ -21,19 +21,19 @@ Findings marked **(fixed in this PR)** have a small fix in the same pull request
    - **Fix:** Put the retry at the front of the queue (`insert(request, at: 0)`).
    - **If we skip it:** On a weak link, the buds sometimes end in a different mode than the one the user picked last.
 
-3. **Any incoming packet moves the queue on, so commands lose their answer** (`framework/NothingServiceImpl.swift` `processPacket`, last lines)
+3. **Any incoming packet moves the queue on, so commands lose their answer** (`framework/NothingServiceImpl.swift` `processPacket`, last lines) **(fixed in this PR)**
    - **What this is:** After every packet received, the code calls `processNextRequest()`.
    - **Problem:** Devices also send packets nobody asked for (battery, charging status, ear detection). If one arrives while a command waits for its answer, the next command is sent and `currentRequest` is replaced. The real answer then matches nothing, so the first command's success handler never runs: e.g. `switchANC` never sets `nothingDevice?.anc`, and the UI keeps the old mode until the next refresh. `setRingBuds` also writes directly to the channel outside the queue, which has the same effect.
    - **Fix:** In `processPacket`, only call `processNextRequest()` when the packet's operation id matches `currentRequest` (or when there is no current request); let the timeout handle the rest. Route `setRingBuds` through `addRequest`. Needs testing on real hardware, because some devices may answer with a different id and would then wait for the 1 s timeout.
    - **If we skip it:** Settings sometimes look like they did not apply, and the UI shows stale values.
 
-4. **The command queue is used from three threads without a lock on every path** (`framework/NothingServiceImpl.swift` `fetchData`, `processNextRequest`, `processPacket`; `framework/BluetoothManager.swift` `connectToDevice`)
+4. **The command queue is used from three threads without a lock on every path** (`framework/NothingServiceImpl.swift` `fetchData`, `processNextRequest`, `processPacket`; `framework/BluetoothManager.swift` `connectToDevice`) **(fixed in this PR)**
    - **What this is:** `fetchData` and the request timeout run on a background queue (`DispatchQueue.global()`); received data runs on the main thread.
    - **Problem:** `processPacket` reads `currentRequest` without the semaphore while a timeout on another thread writes it. Timeouts also call completions and `send()` from the background, so `@Published` device properties change off the main thread and IOBluetooth is written from a random thread. In `BluetoothManager.connectToDevice`, `isConnecting` is checked and set on a background queue, so two connects fired together (Bluetooth-on plus system-connect at launch, or the 30 s reattach timer) can both pass the check.
    - **Fix:** Do all queue and Bluetooth work on the main thread: replace the `DispatchQueue.global()` calls in `fetchData`/`processNextRequest` with `DispatchQueue.main`, then remove `queueSemaphore`. Check and set `isConnecting` on the main thread before dispatching the blocking `openConnection()`.
    - **If we skip it:** Rare crashes and "Publishing changes from background threads" warnings; occasional double connect attempts.
 
-5. **Disconnecting during a channel retry blocks all future connects** (`framework/BluetoothManager.swift` `handleChannelOpenFailure`, `disconnectDevice`)
+5. **Disconnecting during a channel retry blocks all future connects** (`framework/BluetoothManager.swift` `handleChannelOpenFailure`, `disconnectDevice`) **(fixed in this PR)**
    - **What this is:** If the control channel fails to open, the app retries after 1.5 s; `isConnecting` stays `true` until a retry ends.
    - **Problem:** If the user disconnects inside that 1.5 s, `device` becomes `nil`, the retry block returns early, and nothing sets `isConnecting` back to `false`. Every later connect logs "Connection attempt already in progress" and does nothing until the app restarts.
    - **Fix:** In `disconnectDevice()`, add `isConnecting = false` and `channelOpenGeneration += 1`.
@@ -59,7 +59,7 @@ Findings marked **(fixed in this PR)** have a small fix in the same pull request
    - **Fix:** Keep the observer token, capture `[weak self]`, remove it in `deinit` (same pattern as `SettingsViewViewModel`).
    - **If we skip it:** Memory and CPU slowly grow for as long as the app runs.
 
-9. **No test covers the packet parser or model detection** (`Nothing X MacOSTests/Nothing_X_MacOSTests.swift`)
+9. **No test covers the packet parser or model detection** (`Nothing X MacOSTests/Nothing_X_MacOSTests.swift`) **(fixed in this PR)**
    - **What this is:** The only unit test file is the Xcode template, and CI only builds.
    - **Problem:** The riskiest logic is pure functions with no Bluetooth needed: `codenameFromDeviceName`, `skuFromSerial`, `onDataReceived` splitting several packets, `readBattery`, `CRC16`. A wrong change there (e.g. reordering the `"buds 2"` / `"buds 2 plus"` checks) breaks a device and nothing fails.
    - **Fix:** One test file with a handful of byte arrays captured from real devices and the expected model/battery. Make the parse helpers `internal` (or `static`) so the test can call them.
@@ -71,7 +71,7 @@ Findings marked **(fixed in this PR)** have a small fix in the same pull request
     - **Fix:** Delete those files (checked by following references from `Nothing_X_MacOSApp.swift`; Xcode must also drop them from the project). Left out of this PR on purpose, to avoid clashing with the UI work on device support happening in parallel.
     - **If we skip it:** Every UI change has to be checked against two UIs, one of them dead.
 
-11. **Request completions report failure and then success for the same command** (`framework/NothingServiceImpl.swift` `processNextRequest`)
+11. **Request completions report failure and then success for the same command** (`framework/NothingServiceImpl.swift` `processNextRequest`) **(fixed in this PR)**
     - **What this is:** On a timeout with retries left, the code calls `completion(.failure)` and re-queues the request.
     - **Problem:** If the retry then succeeds, the same completion runs again with `.success`. Today callers only log on failure, so the effect is noise in the logs, but any future caller that reverts state on failure would revert a change that worked.
     - **Fix:** Only call the completion when the request is finally done (success or last retry).
@@ -79,12 +79,12 @@ Findings marked **(fixed in this PR)** have a small fix in the same pull request
 
 ## Nice to have
 
-12. **Saved-device lookups only see the 5 most recent devices** (`data/NothingRepositoryImpl.swift` `getSaved`)
+12. **Saved-device lookups only see the 5 most recent devices** (`data/NothingRepositoryImpl.swift` `getSaved`) **(fixed in this PR)**
     - **What this is:** `getSaved()` returns at most 5 devices; `NothingServiceImpl` uses it to restore a device's model on connect.
     - **Problem:** A 6th saved device is still stored, but its saved model and name are not restored, so it falls back to name detection.
     - **Fix:** Use `JsonEncoder.shared.getAllDevices()` (or a `find(mac:)`) for lookups; keep the limit only for the list on screen.
 
-13. **Serial numbers and MAC addresses are logged as public** (`framework/utils/NXLogger.swift`)
+13. **Serial numbers and MAC addresses are logged as public** (`framework/utils/NXLogger.swift`) **(fixed in this PR)**
     - **What this is:** Every log message uses `privacy: .public`.
     - **Problem:** Serials and MACs land in the system log readable by any admin or sysdiagnose.
     - **Fix:** Log serial/MAC with `privacy: .private`, or keep `.public` only for messages without identifiers.
