@@ -11,8 +11,10 @@ struct NXEarTipTestScreen: View {
     @EnvironmentObject var mainViewModel: MainViewViewModel
     @StateObject private var viewModel = EarTipTestViewModel(nothingService: NothingServiceImpl.shared)
 
-    private var art: (left: String, right: String?) {
-        NXDeviceArt.images(for: mainViewModel.nothingDevice?.codename ?? .UNKNOWN)
+    private var codename: Codenames { mainViewModel.nothingDevice?.codename ?? .UNKNOWN }
+
+    private var art: (left: String, right: String?)? {
+        NXDeviceArt.images(for: codename)
     }
 
     var body: some View {
@@ -28,8 +30,8 @@ struct NXEarTipTestScreen: View {
             }
 
             HStack(spacing: 20) {
-                resultCard(image: art.left, label: "LEFT", result: viewModel.leftResult)
-                resultCard(image: art.right ?? art.left, label: "RIGHT", result: viewModel.rightResult)
+                resultCard(image: art?.left, label: "LEFT", result: viewModel.leftResult)
+                resultCard(image: art.map { $0.right ?? $0.left }, label: "RIGHT", result: viewModel.rightResult)
             }
             .frame(maxHeight: .infinity)
 
@@ -55,9 +57,13 @@ struct NXEarTipTestScreen: View {
         }
     }
 
-    private func resultCard(image: String, label: String, result: EarTipResult) -> some View {
+    private func resultCard(image: String?, label: String, result: EarTipResult) -> some View {
         VStack(spacing: 16) {
-            Image(image).resizable().scaledToFit().frame(width: 64, height: 110)
+            if let image = image {
+                Image(image).resizable().scaledToFit().frame(width: 64, height: 110)
+            } else {
+                NXDeviceGlyph(codename: codename, width: 64, height: 110)
+            }
             Text(label)
                 .font(.system(size: 9))
                 .tracking(2.4)

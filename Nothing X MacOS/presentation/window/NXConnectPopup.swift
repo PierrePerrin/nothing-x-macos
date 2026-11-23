@@ -318,20 +318,8 @@ struct NXConnectCard: View {
     @ViewBuilder
     private var stage: some View {
         let art = NXDeviceArt.images(for: data.codename)
-        let hasArt = NSImage(named: art.left) != nil
 
-        if data.isSingleUnit || !hasArt || art.right == nil {
-            // Headphones and the neckband have no bundled art
-            unit(label: data.isSingleUnit ? "BATTERY" : "LEFT", level: data.left, delay: 0) {
-                if hasArt {
-                    NXEntranceImage(name: art.left, height: 72 * k, side: 0, dimmed: false, generation: state.generation)
-                } else {
-                    NXDotGlyph(kind: .headphone, generation: state.generation)
-                        .frame(width: 60 * k, height: 50 * k)
-                        .padding(.bottom, 10 * k)
-                }
-            }
-        } else {
+        if !data.isSingleUnit, let art = art, let right = art.right {
             HStack(alignment: .bottom, spacing: 12 * k) {
                 unit(label: "LEFT", level: data.left, delay: 0) {
                     NXEntranceImage(name: art.left, height: 72 * k, side: -1, dimmed: data.left == nil, generation: state.generation)
@@ -342,7 +330,18 @@ struct NXConnectCard: View {
                         .padding(.bottom, 10 * k)
                 }
                 unit(label: "RIGHT", level: data.right, delay: 0.3) {
-                    NXEntranceImage(name: art.right!, height: 72 * k, side: 1, dimmed: data.right == nil, generation: state.generation)
+                    NXEntranceImage(name: right, height: 72 * k, side: 1, dimmed: data.right == nil, generation: state.generation)
+                }
+            }
+        } else {
+            // Headphones, the neckband and unknown devices have no bundled art
+            unit(label: data.isSingleUnit ? "BATTERY" : "LEFT", level: data.left, delay: 0) {
+                if let art = art {
+                    NXEntranceImage(name: art.left, height: 72 * k, side: 0, dimmed: false, generation: state.generation)
+                } else {
+                    NXDotGlyph(kind: .headphone, generation: state.generation)
+                        .frame(width: 60 * k, height: 50 * k)
+                        .padding(.bottom, 10 * k)
                 }
             }
         }
