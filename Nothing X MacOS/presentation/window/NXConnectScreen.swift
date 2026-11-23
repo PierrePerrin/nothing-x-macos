@@ -113,7 +113,7 @@ struct NXConnectScreen: View {
                         primary: true
                     ) { discoverVM.connectToDevice() }
                 }
-                ForEach(visibleSavedDevices, id: \.serial) { device in
+                ForEach(visibleSavedDevices, id: \.bluetoothDetails.mac) { device in
                     deviceRow(
                         name: device.name.uppercased(),
                         caption: "PAIRED PREVIOUSLY",

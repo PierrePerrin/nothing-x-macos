@@ -783,8 +783,9 @@ class NothingServiceImpl : NothingService {
 
             // Check if the retry count exceeds the maximum allowed
             if request.retryCount <= request.maxRetries {
-                // Re-add the request to the queue
-                self.requestQueue.append(request)
+                // Retry before anything queued later, so a quick second
+                // setting change can't be overwritten by the first one's retry
+                self.requestQueue.insert(request, at: 0)
                 self.isProcessing = false
                 self.queueSemaphore.signal()
 
@@ -983,7 +984,7 @@ class NothingServiceImpl : NothingService {
         for config in configurations {
             log.debug("Config: device=\(config.device) type=\(config.type) value=\(config.value)")
         }
-        let serialValue = serialConfigs.first?.value ?? "12345678901234567"
+        let serialValue = serialConfigs.first?.value ?? ""
         log.info("Serial: \(serialValue)")
         return serialValue
     }
@@ -1259,10 +1260,18 @@ class NothingServiceImpl : NothingService {
         case Commands.READ_SERIAL_NUMBER.rawValue:
 
             let serial = readSerial(hexPayload: rawData)
-            if (!serial.isEmpty) {
+            let nameCodename = codenameFromDeviceName(name: nothingDevice?.name ?? "")
+            if serial.isEmpty {
+                // No serial line in the answer. Ear (1) answers like this, so
+                // keep treating an otherwise unrecognized device as Ear (1),
+                // but never override a model already known from name or config
+                if nothingDevice?.codename == .UNKNOWN, nameCodename == .UNKNOWN {
+                    nothingDevice?.sku = .EAR_1_WHITE
+                    nothingDevice?.codename = .ONE
+                }
+            } else {
                 nothingDevice?.serial = serial
                 let sku = skuFromSerial(serial: serial)
-                let nameCodename = codenameFromDeviceName(name: nothingDevice?.name ?? "")
                 if sku != .UNKNOWN {
                     var codename = codenameFromSKU(sku: sku)
                     // The MA-prefix serial heuristic tells Ear (stick) and
