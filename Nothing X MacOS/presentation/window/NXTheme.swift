@@ -53,10 +53,20 @@ enum NX {
 
 enum NXDeviceArt {
     /// Asset names for a device; `right` is nil for single-unit devices.
-    static func images(for codename: Codenames) -> (left: String, right: String?) {
+    /// Returns nil when no artwork is bundled for the model (unknown devices,
+    /// headphones and the neckband) so callers can draw `NXDeviceGlyph` instead.
+    static func images(for codename: Codenames) -> (left: String, right: String?)? {
+        guard let art = assetNames(for: codename), NSImage(named: art.left) != nil else { return nil }
+        if let right = art.right, NSImage(named: right) == nil {
+            return (art.left, nil)
+        }
+        return art
+    }
+
+    private static func assetNames(for codename: Codenames) -> (left: String, right: String?)? {
         switch codename {
         case .ONE: return ("ear_1_left", "ear_1_right")
-        case .TWO, .UNKNOWN: return ("ear_2_left", "ear_2_right")
+        case .TWO: return ("ear_2_left", "ear_2_right")
         case .TWOS: return ("ear_left", "ear_right")
         case .CLEFFA: return ("ear_a_yellow_left", "ear_a_yellow_right")
         case .FLAFFY: return ("ear_open_left", "ear_open_right")
@@ -66,9 +76,37 @@ enum NXDeviceArt {
         case .ESPEON: return ("cmf_buds_pro_2_left", "cmf_buds_pro_2_right")
         case .DONPHAN, .GIRAFARIG, .GLIGAR, .HOOTHOOT: return ("cmf_buds_left", "cmf_buds_right")
         case .CROBAT: return ("cmf_neckband_pro", nil)
-        case .ELEKID, .HEADPHONE_PRO: return ("headphone_1", nil)
+        case .ELEKID: return ("headphone_1", nil)
+        case .HEADPHONE_PRO: return ("cmf_headphone_pro", nil)
         case .HEADPHONE_A: return ("headphone_a", nil)
+        case .UNKNOWN: return nil
         }
+    }
+
+    /// SF Symbol drawn when a device has no bundled artwork
+    static func symbolName(for codename: Codenames) -> String {
+        switch codename.form {
+        case .headphones, .neckband:
+            return "headphones"
+        case .earbuds, .unknown:
+            // `earbuds` ships with SF Symbols 4 (macOS 13); guard anyway
+            return NSImage(systemSymbolName: "earbuds", accessibilityDescription: nil) != nil ? "earbuds" : "headphones"
+        }
+    }
+}
+
+/// Generic device glyph used wherever a model has no bundled artwork, so
+/// every device (including ones we don't recognise) still shows an icon
+struct NXDeviceGlyph: View {
+    let codename: Codenames
+    var width: CGFloat
+    var height: CGFloat
+
+    var body: some View {
+        Image(systemName: NXDeviceArt.symbolName(for: codename))
+            .font(.system(size: min(width, height) * 0.5, weight: .light))
+            .foregroundColor(NX.textSecondary)
+            .frame(width: width, height: height)
     }
 }
 
@@ -79,15 +117,8 @@ struct NXBudsImage: View {
     var height: CGFloat
 
     var body: some View {
-        let art = NXDeviceArt.images(for: codename ?? .UNKNOWN)
-        if NSImage(named: art.left) == nil {
-            // Art not bundled (headphone/neckband images exceed the design
-            // export size cap) — show a glyph instead of an empty frame
-            Image(systemName: "headphones")
-                .font(.system(size: height * 0.42, weight: .light))
-                .foregroundColor(NX.textSecondary)
-                .frame(width: height * 0.92, height: height)
-        } else {
+        let resolved = codename ?? .UNKNOWN
+        if let art = NXDeviceArt.images(for: resolved) {
             HStack(alignment: .bottom, spacing: 0) {
                 Image(art.left)
                     .resizable().scaledToFit()
@@ -98,6 +129,8 @@ struct NXBudsImage: View {
                         .frame(width: height * 0.56, height: height)
                 }
             }
+        } else {
+            NXDeviceGlyph(codename: resolved, width: height * 0.92, height: height)
         }
     }
 }

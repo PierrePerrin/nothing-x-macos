@@ -38,16 +38,27 @@ struct Nothing_X_MacOSApp: App {
         }
     }
 
+    /// Earbud icon for earbuds (and before anything connects), a headphone
+    /// glyph for over-ear models and the neckband
+    @ViewBuilder
+    private var menuBarLabel: some View {
+        switch viewModel.nothingDevice?.codename.form {
+        case .headphones?, .neckband?:
+            Label(batteryText, systemImage: "headphones")
+                .labelStyle(.titleAndIcon)
+        default:
+            Label(batteryText, image: "nothing.ear.1")
+                .labelStyle(.titleAndIcon)
+        }
+    }
+
     var body: some Scene {
         MenuBarExtra {
             NXQuickPanel()
                 .environmentObject(store)
                 .environmentObject(viewModel)
         } label: {
-
-            Label(batteryText, image: "nothing.ear.1")
-                .labelStyle(.titleAndIcon)
-
+            menuBarLabel
         }
         .menuBarExtraStyle(.window)
 

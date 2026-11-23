@@ -90,12 +90,12 @@ struct NXControlsScreen: View {
     // MARK: - Buds
 
     private var budsIllustration: some View {
-        let art = NXDeviceArt.images(for: mainViewModel.nothingDevice?.codename ?? .UNKNOWN)
+        let art = NXDeviceArt.images(for: codename)
         return VStack(spacing: 12) {
             Spacer()
             HStack(alignment: .bottom, spacing: 0) {
-                budImage(art.left, side: .left)
-                budImage(art.right ?? art.left, side: .right)
+                budImage(art?.left, side: .left)
+                budImage(art.map { $0.right ?? $0.left }, side: .right)
             }
             .animation(.bouncy(duration: 0.3), value: side)
             Text(side == .left ? "LEFT" : "RIGHT")
@@ -107,17 +107,24 @@ struct NXControlsScreen: View {
         .frame(width: 220)
     }
 
-    private func budImage(_ name: String, side target: EarBudSide) -> some View {
+    private var codename: Codenames { mainViewModel.nothingDevice?.codename ?? .UNKNOWN }
+
+    private func budImage(_ name: String?, side target: EarBudSide) -> some View {
         Button {
             side = target
         } label: {
-            Image(name)
-                .resizable().scaledToFit()
-                .frame(width: 105, height: 190)
-                .scaleEffect(side == target ? 1.08 : 1)
-                .opacity(side == target ? 1 : 0.75)
-                .brightness(side == target ? 0 : -0.2)
-                .contentShape(Rectangle())
+            Group {
+                if let name = name {
+                    Image(name).resizable().scaledToFit()
+                } else {
+                    NXDeviceGlyph(codename: codename, width: 105, height: 190)
+                }
+            }
+            .frame(width: 105, height: 190)
+            .scaleEffect(side == target ? 1.08 : 1)
+            .opacity(side == target ? 1 : 0.75)
+            .brightness(side == target ? 0 : -0.2)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(target == .left ? "Show left earbud controls" : "Show right earbud controls")

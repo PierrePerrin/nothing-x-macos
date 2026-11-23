@@ -25,3 +25,25 @@ enum Codenames : String, Codable {
     case HEADPHONE_PRO = "B175" // CMF Headphone Pro (community codename unknown)
     case HEADPHONE_A = "B186"   // Nothing Headphone (a) (community codename unknown)
 }
+
+/// Physical shape of a device, used to pick artwork and layout when a model
+/// has no dedicated art (or is not recognised at all)
+enum DeviceForm {
+    case earbuds
+    case headphones
+    case neckband
+    case unknown
+}
+
+extension Codenames {
+    var form: DeviceForm {
+        switch self {
+        case .ELEKID, .HEADPHONE_PRO, .HEADPHONE_A: return .headphones
+        case .CROBAT: return .neckband
+        case .UNKNOWN: return .unknown
+        case .ONE, .STICKS, .TWO, .CORSOLA, .TWOS, .ESPEON, .DONPHAN, .FLAFFY,
+             .CLEFFA, .EAR3, .GIRAFARIG, .GLIGAR, .HOOTHOOT:
+            return .earbuds
+        }
+    }
+}
