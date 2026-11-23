@@ -251,30 +251,31 @@ class BluetoothManager: NSObject, IOBluetoothDeviceInquiryDelegate, IOBluetoothR
 
         stopDeviceInquiry()
 
+        log.info("Connecting to device \(address)")
+
+        // Check and set on the calling (main) thread so two connects fired together can't both pass
+        guard !isConnecting else {
+            log.info("Connection attempt already in progress, skipping")
+            return
+        }
+        isConnecting = true
+
+        // Already connected with an open RFCOMM channel — nothing to do.
+        // The baseband link alone is not enough: after sleep the device can
+        // still report isConnected() while the RFCOMM channel is gone.
+        if (device?.isConnected() ?? false) && channel != nil {
+            isConnecting = false
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: Notification.Name(BluetoothNotifications.OPENED_RFCOMM_CHANNEL.rawValue), object: nil)
+            }
+            return
+        }
+
         DispatchQueue.global(qos: .userInitiated).async {
-                self.log.info("Connecting to device \(address)")
-
-                guard !self.isConnecting else {
-                    self.log.info("Connection attempt already in progress, skipping")
-                    return
-                }
-                self.isConnecting = true
-
-                // Already connected with an open RFCOMM channel — nothing to do.
-                // The baseband link alone is not enough: after sleep the device can
-                // still report isConnected() while the RFCOMM channel is gone.
-                if (self.device?.isConnected() ?? false) && self.channel != nil {
-                    self.isConnecting = false
-                    DispatchQueue.main.async {
-                        NotificationCenter.default.post(name: Notification.Name(BluetoothNotifications.OPENED_RFCOMM_CHANNEL.rawValue), object: nil)
-                    }
-                    return
-                }
-
                 guard let device = IOBluetoothDevice(addressString: address) else {
                     self.log.error("Invalid device address: \(address)")
-                    self.isConnecting = false
                     DispatchQueue.main.async {
+                        self.isConnecting = false // reset on main, where it is checked
                         NotificationCenter.default.post(name: Notification.Name(BluetoothNotifications.FAILED_TO_CONNECT.rawValue), object: nil)
                     }
                     return
@@ -299,8 +300,8 @@ class BluetoothManager: NSObject, IOBluetoothDeviceInquiryDelegate, IOBluetoothR
 
                 guard resultConnection == kIOReturnSuccess else {
                     self.log.error("Failed to connect to device, IOReturn: \(String(format: "0x%08x", resultConnection))")
-                    self.isConnecting = false
                     DispatchQueue.main.async {
+                        self.isConnecting = false // reset on main, where it is checked
                         self.device = nil
                         NotificationCenter.default.post(name: Notification.Name(BluetoothNotifications.FAILED_TO_CONNECT.rawValue), object: nil)
                     }
@@ -504,7 +505,12 @@ class BluetoothManager: NSObject, IOBluetoothDeviceInquiryDelegate, IOBluetoothR
             device.closeConnection()
         }
         self.device = nil // Ensure it's set to nil immediately
-        
+
+        // A pending channel retry or watchdog would otherwise return early and leave isConnecting stuck
+        isConnecting = false
+        channelOpenRetries = 0
+        channelOpenGeneration += 1
+
         // 3. Stop Device Inquiry (if running) - important to prevent further connections
         if let inquiry = self.deviceInquiry {
             inquiry.stop()
